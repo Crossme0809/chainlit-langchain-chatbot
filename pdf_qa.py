@@ -1,4 +1,4 @@
-# Import necessary modules and define env variables
+# 导入必要模块，定义env变量
 
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -16,16 +16,14 @@ import chainlit as cl
 import PyPDF2
 from io import BytesIO
 
-
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# 从. env文件加载环境变量
 load_dotenv()
 
-OPENAI_API_KEY= os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-
-# text_splitter and system template
+# text_splitter和系统模板
 
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
@@ -45,7 +43,6 @@ Begin!
 ----------------
 {summaries}"""
 
-
 messages = [
     SystemMessagePromptTemplate.from_template(system_template),
     HumanMessagePromptTemplate.from_template("{question}"),
@@ -56,18 +53,17 @@ chain_type_kwargs = {"prompt": prompt}
 
 @cl.on_chat_start
 async def on_chat_start():
-
-    # Sending an image with the local file path
+    # 发送带有本地文件路径的图像
     elements = [
-    cl.Image(name="image1", display="inline", path="./robot.jpeg")
+        cl.Image(name="image1", display="inline", path="./robot.jpeg")
     ]
-    await cl.Message(content="Hello there, Welcome to AskAnyQuery related to Data!", elements=elements).send()
+    await cl.Message(content="你好，欢迎使用文档聊天机器人 AskDocumentQuery!", elements=elements).send()
     files = None
 
-    # Wait for the user to upload a PDF file
+    # 等待用户上传PDF文件
     while files is None:
         files = await cl.AskFileMessage(
-            content="Please upload a PDF file to begin!",
+            content="请上传PDF文档!",
             accept=["application/pdf"],
             max_size_mb=20,
             timeout=180,
@@ -85,31 +81,30 @@ async def on_chat_start():
     for page in pdf.pages:
         pdf_text += page.extract_text()
 
-    # Split the text into chunks
+    # 将文本分成块
     texts = text_splitter.split_text(pdf_text)
 
-    # Create metadata for each chunk
+    # 为每个块创建元数据
     metadatas = [{"source": f"{i}-pl"} for i in range(len(texts))]
 
-    # Create a Chroma vector store
+    # 创建 Chroma 向量数据库存储
     embeddings = OpenAIEmbeddings()
     docsearch = await cl.make_async(Chroma.from_texts)(
         texts, embeddings, metadatas=metadatas
     )
 
-    # Create a chain that uses the Chroma vector store
+    # 创建一个使用Chroma向量存储的链
     chain = RetrievalQAWithSourcesChain.from_chain_type(
         ChatOpenAI(temperature=0),
         chain_type="stuff",
         retriever=docsearch.as_retriever(),
     )
-    
 
-    # Save the metadata and texts in the user session
+    # 在用户会话中保存元数据和文本
     cl.user_session.set("metadatas", metadatas)
     cl.user_session.set("texts", texts)
 
-    # Let the user know that the system is ready
+    # 让用户知道系统已准备就绪
     msg.content = f"Processing `{file.name}` done. You can now ask questions!"
     await msg.update()
 
@@ -117,8 +112,7 @@ async def on_chat_start():
 
 
 @cl.on_message
-async def main(message:str):
-
+async def main(message: str):
     chain = cl.user_session.get("chain")  # type: RetrievalQAWithSourcesChain
     cb = cl.AsyncLangchainCallbackHandler(
         stream_final_answer=True, answer_prefix_tokens=["FINAL", "ANSWER"]
@@ -129,8 +123,8 @@ async def main(message:str):
     answer = res["answer"]
     sources = res["sources"].strip()
     source_elements = []
-    
-    # Get the metadata and texts from the user session
+
+    # 从用户会话中获取元数据和文本
     metadatas = cl.user_session.get("metadatas")
     all_sources = [m["source"] for m in metadatas]
     texts = cl.user_session.get("texts")
@@ -138,17 +132,17 @@ async def main(message:str):
     if sources:
         found_sources = []
 
-        # Add the sources to the message
+        # 将来源添加到消息中
         for source in sources.split(","):
             source_name = source.strip().replace(".", "")
-            # Get the index of the source
+            # 获取源的索引
             try:
                 index = all_sources.index(source_name)
             except ValueError:
                 continue
             text = texts[index]
             found_sources.append(source_name)
-            # Create the text element referenced in the message
+            # 创建消息中引用的文本元素
             source_elements.append(cl.Text(content=text, name=source_name))
 
         if found_sources:
